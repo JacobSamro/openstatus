@@ -1,5 +1,6 @@
 import { relations, sql } from "drizzle-orm";
 import {
+  index,
   integer,
   primaryKey,
   sqliteTable,
@@ -56,11 +57,11 @@ export const monitor = sqliteTable("monitor", {
 
   public: integer("public", { mode: "boolean" }).default(false),
 
-  retry: integer("retry").default(3),
-
   followRedirects: integer("follow_redirects", { mode: "boolean" }).default(
     true,
   ),
+
+  retry: integer("retry").default(3),
 
   createdAt: integer("created_at", { mode: "timestamp" }).default(
     sql`(strftime('%s', 'now'))`,
@@ -68,9 +69,28 @@ export const monitor = sqliteTable("monitor", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).default(
     sql`(strftime('%s', 'now'))`,
   ),
+  // Heartbeat-specific fields
+  heartbeatInterval: integer("heartbeat_interval"), // Expected interval in seconds
+  heartbeatTimeout: integer("heartbeat_timeout"), // Timeout in seconds before failure
+  lastHeartbeatAt: integer("last_heartbeat_at", { mode: "timestamp" }), // Last heartbeat timestamp
 
   deletedAt: integer("deleted_at", { mode: "timestamp" }),
 });
+
+export const heartbeatData = sqliteTable("heartbeat_data", {
+  id: integer("id").primaryKey(),
+  monitorId: integer("monitor_id")
+    .notNull()
+    .references(() => monitor.id, { onDelete: "cascade" }),
+  timestamp: integer("timestamp", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(strftime('%s', 'now'))`),
+  message: text("message"), // Optional message from the heartbeat
+  metadata: text("metadata", { mode: "json" }), // Additional metadata
+  status: text("status").default("received"), // received, processed, failed
+}, (table) => ({
+  monitorIdIdx: index("heartbeat_data_monitor_id_idx").on(table.monitorId),
+}));
 
 export const monitorRelation = relations(monitor, ({ one, many }) => ({
   monitorsToPages: many(monitorsToPages),
@@ -85,6 +105,7 @@ export const monitorRelation = relations(monitor, ({ one, many }) => ({
   incidents: many(incidentTable),
   monitorStatus: many(monitorStatusTable),
   privateLocationToMonitors: many(privateLocationToMonitors),
+  heartbeatData: many(heartbeatData),
 }));
 
 export const monitorsToPages = sqliteTable(

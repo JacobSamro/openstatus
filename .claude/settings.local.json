@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bun run generate:*)",
+      "Bash(bunx drizzle-kit:*)",
+      "Bash(bun install:*)",
+      "Bash(bunx tsc:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

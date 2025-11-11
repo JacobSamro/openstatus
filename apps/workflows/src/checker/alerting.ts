@@ -208,3 +208,101 @@ export const upsertMonitorStatus = async ({
   logger.info(`📈 upsertMonitorStatus for ${monitorId} in region ${region}`);
   logger.info("🤔 upsert monitor {*}", { ...newData });
 };
+
+export const updateHeartbeatStatus = async ({
+  monitorId,
+  status,
+  region,
+  cronTimestamp,
+  message,
+}: {
+  monitorId: string;
+  status: MonitorStatus;
+  region: Region;
+  cronTimestamp: number;
+  message?: string;
+}) => {
+  // For heartbeat monitors, we update status in all regions since heartbeats are global
+  // First, upsert the monitor status
+  await upsertMonitorStatus({ monitorId, status, region });
+
+  // Then trigger notifications if needed (reuse existing logic from checker/index.ts)
+  const currentMonitor = await db
+    .select()
+    .from(schema.monitor)
+    .where(eq(schema.monitor.id, Number(monitorId)))
+    .get();
+
+  if (!currentMonitor) return;
+
+  const monitor = selectMonitorSchema.parse(currentMonitor);
+  const numberOfRegions = monitor.regions.length;
+
+  const affectedRegion = await db
+    .select({ count: count() })
+    .from(schema.monitorStatusTable)
+    .where(
+      and(
+        eq(schema.monitorStatusTable.monitorId, monitor.id),
+        eq(schema.monitorStatusTable.status, status),
+        inArray(schema.monitorStatusTable.region, monitor.regions),
+      ),
+    )
+    .get();
+
+  if (!affectedRegion?.count) return;
+
+  // Check if we need to trigger alerts based on status change
+  const previousStatus = await db
+    .select()
+    .from(schema.monitorStatusTable)
+    .where(
+      and(
+        eq(schema.monitorStatusTable.monitorId, monitor.id),
+        eq(schema.monitorStatusTable.region, region),
+      ),
+    )
+    .get();
+
+  const previousStatusValue = previousStatus?.status || "active";
+  const currentStatusValue = status;
+
+  // Determine notification type
+  let notifType: "alert" | "recovery" | "degraded" | null = null;
+  if (previousStatusValue === "active" && currentStatusValue === "error") {
+    notifType = "alert";
+  } else if (previousStatusValue === "error" && currentStatusValue === "active") {
+    notifType = "recovery";
+  } else if (previousStatusValue === "active" && currentStatusValue === "degraded") {
+    notifType = "degraded";
+  }
+
+  if (notifType) {
+    await triggerNotifications({
+      monitorId,
+      statusCode: 0,
+      message: message || `Heartbeat status changed to ${status}`,
+      notifType,
+      cronTimestamp,
+      incidentId: `heartbeat-${monitorId}-${cronTimestamp}`,
+      region,
+      latency: 0,
+    });
+  }
+
+  // Audit log
+  await checkerAudit.publishAuditLog({
+    id: `monitor:${monitorId}`,
+    action: "monitor.checked",
+    targets: [{ id: monitorId, type: "monitor" }],
+    metadata: {
+      region,
+      status: status,
+      cronTimestamp,
+      jobType: "heartbeat",
+      message,
+    },
+  });
+
+  logger.info(`💓 updateHeartbeatStatus for ${monitorId}: ${status}`);
+};

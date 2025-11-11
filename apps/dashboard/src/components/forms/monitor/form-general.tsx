@@ -54,26 +54,26 @@ import {
 } from "@openstatus/assertions";
 import { monitorMethods } from "@openstatus/db/src/schema";
 import { isTRPCClientError } from "@trpc/client";
-import { Globe, Network, Plus, X } from "lucide-react";
+import { Globe, Heart, Network, Plus, X } from "lucide-react";
 import { useEffect, useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
-const TYPES = ["http", "tcp"] as const;
+const TYPES = ["http", "tcp", "heartbeat"] as const;
 const ASSERTION_TYPES = ["status", "header", "textBody"] as const;
 
 const schema = z.object({
   name: z.string().min(1, "Name is required"),
   type: z.enum(TYPES),
-  method: z.enum(monitorMethods),
-  url: z.string().min(1, "URL is required"),
+  method: z.enum(monitorMethods).optional(),
+  url: z.string().optional(),
   headers: z.array(
     z.object({
       key: z.string(),
       value: z.string(),
     }),
-  ),
+  ).optional().default([]),
   active: z.boolean().optional().default(true),
   assertions: z.array(
     z.discriminatedUnion("type", [
@@ -82,10 +82,48 @@ const schema = z.object({
       textBodyAssertion,
       jsonBodyAssertion,
     ]),
-  ),
+  ).optional().default([]),
   body: z.string().optional(),
   skipCheck: z.boolean().optional().default(false),
   saveCheck: z.boolean().optional().default(false),
+  heartbeatInterval: z.coerce.number().gte(1).lte(86400).optional(), // 1 second to 24 hours
+  heartbeatTimeout: z.coerce.number().gte(1).lte(86400).optional(), // 1 second to 24 hours
+}).superRefine((data, ctx) => {
+  // For http and tcp monitors, url and method are required
+  if (data.type === "http" || data.type === "tcp") {
+    if (!data.url || data.url.trim() === "") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "URL is required for http and tcp monitors",
+        path: ["url"],
+      });
+    }
+    if (!data.method) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Method is required for http and tcp monitors",
+        path: ["method"],
+      });
+    }
+  }
+
+  // For heartbeat monitors, interval and timeout are required
+  if (data.type === "heartbeat") {
+    if (!data.heartbeatInterval) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Heartbeat interval is required",
+        path: ["heartbeatInterval"],
+      });
+    }
+    if (!data.heartbeatTimeout) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Heartbeat timeout is required",
+        path: ["heartbeatTimeout"],
+      });
+    }
+  }
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -303,10 +341,30 @@ export function FormGeneral({
                           TCP
                         </FormLabel>
                       </FormItem>
-                      <div className="col-span-2 self-end text-muted-foreground text-xs sm:place-self-end">
-                        Missing a type?{" "}
-                        <a href="mailto:ping@openstatus.dev">Contact us</a>
-                      </div>
+                      <FormItem
+                        className={cn(
+                          "relative flex cursor-pointer flex-row items-center gap-3 rounded-md border border-input px-2 py-3 text-center shadow-xs outline-none transition-[color,box-shadow] has-aria-[invalid=true]:border-destructive has-data-[state=checked]:border-primary/50 has-focus-visible:border-ring has-focus-visible:ring-[3px] has-focus-visible:ring-ring/50",
+                          defaultValues &&
+                            defaultValues.type !== "heartbeat" &&
+                            "pointer-events-none opacity-50",
+                        )}
+                      >
+                        <FormControl>
+                          <RadioGroupItem
+                            value="heartbeat"
+                            className="sr-only"
+                            disabled={!!defaultValues?.type}
+                          />
+                        </FormControl>
+                        <Heart
+                          className="shrink-0 text-muted-foreground"
+                          size={16}
+                          aria-hidden="true"
+                        />
+                        <FormLabel className="cursor-pointer font-medium text-foreground text-xs leading-none after:absolute after:inset-0">
+                          Heartbeat
+                        </FormLabel>
+                      </FormItem>
                     </RadioGroup>
                   </FormControl>
                   <FormMessage />
@@ -697,6 +755,65 @@ export function FormGeneral({
                       [2001:db8:85a3:8d3:1319:8a2e:370:7348]:443
                     </span>
                   </li>
+                </ul>
+              </div>
+            </FormCardContent>
+          )}
+          {watchType === "heartbeat" && (
+            <FormCardContent className="grid gap-4 sm:grid-cols-2">
+              <FormField
+                control={form.control}
+                name="heartbeatInterval"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Heartbeat Interval (seconds)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        placeholder="300"
+                        min="1"
+                        max="86400"
+                        {...field}
+                        value={field.value ?? ""}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Expected time between heartbeats (1 second to 24 hours)
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={form.control}
+                name="heartbeatTimeout"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Timeout Grace Period (seconds)</FormLabel>
+                    <FormControl>
+                      <Input
+                        type="number"
+                        placeholder="60"
+                        min="1"
+                        max="86400"
+                        {...field}
+                        value={field.value ?? ""}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      Additional time to wait before marking as failed (1 second to 24 hours)
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="col-span-full text-muted-foreground text-sm">
+                <p className="font-medium mb-2">How Heartbeat Monitoring Works:</p>
+                <ul className="list-inside list-disc space-y-1">
+                  <li>Your application sends POST requests to <code className="font-mono text-foreground">/api/heartbeat/[monitorId]</code></li>
+                  <li>OpenStatus expects heartbeats within the specified interval</li>
+                  <li>If no heartbeat is received within interval + grace period, alerts are triggered</li>
+                  <li>Use this for monitoring background services, cron jobs, or any periodic process</li>
                 </ul>
               </div>
             </FormCardContent>

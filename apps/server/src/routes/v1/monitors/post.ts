@@ -86,15 +86,15 @@ export function registerPostMonitor(api: typeof monitorsApi) {
       }
     }
 
-    if (input.jobType && !["http", "tcp"].includes(input.jobType)) {
+    if (input.jobType && !["http", "tcp", "heartbeat"].includes(input.jobType)) {
       throw new OpenStatusApiError({
         code: "BAD_REQUEST",
         message:
-          "Invalid jobType, currently only 'http' and 'tcp' are supported",
+          "Invalid jobType, currently only 'http', 'tcp', and 'heartbeat' are supported",
       });
     }
 
-    const { headers, regions, assertions, ...rest } = input;
+    const { headers, regions, assertions, heartbeatInterval, heartbeatTimeout, ...rest } = input;
 
     const assert = assertions ? getAssertions(assertions) : [];
 
@@ -107,6 +107,8 @@ export function registerPostMonitor(api: typeof monitorsApi) {
         headers: input.headers ? JSON.stringify(input.headers) : undefined,
         assertions: assert.length > 0 ? serialize(assert) : undefined,
         timeout: input.timeout || 45000,
+        heartbeatInterval: heartbeatInterval || undefined,
+        heartbeatTimeout: heartbeatTimeout || undefined,
       })
       .returning()
       .get();

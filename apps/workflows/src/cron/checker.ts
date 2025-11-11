@@ -28,6 +28,8 @@ import {
 import type { Context } from "hono";
 import { env } from "../env";
 
+import { updateHeartbeatStatus } from "../checker/alerting";
+
 export const isAuthorizedDomain = (url: string) => {
   return url.includes(env().SITE_URL);
 };
@@ -262,9 +264,46 @@ const createCronTask = async ({
       retry: row.retry || 3,
     };
   }
+  if (row.jobType === "heartbeat") {
+    // For heartbeat monitors, check if last heartbeat is within expected interval
+    const currentTime = Date.now();
+    const expectedInterval = (row.heartbeatInterval || 300) * 1000; // Convert to milliseconds
+    const timeout = (row.heartbeatTimeout || 60) * 1000; // Convert to milliseconds
 
-  if (!payload) {
-    throw new Error("Invalid jobType");
+    // If no heartbeat has been received yet, skip the check (grace period for new monitors)
+    if (!row.lastHeartbeatAt) {
+      // Don't create a Cloud Task for heartbeat monitors without initial heartbeat
+      return Promise.resolve();
+    }
+
+    const lastHeartbeat = row.lastHeartbeatAt.getTime();
+    const expectedTime = lastHeartbeat + expectedInterval + timeout;
+    const isHealthy = currentTime <= expectedTime;
+
+    // Create payload for heartbeat check
+    payload = {
+      workspaceId: String(row.workspaceId),
+      monitorId: String(row.id),
+      cronTimestamp: timestamp,
+      status: isHealthy ? "active" : "error",
+      message: isHealthy
+        ? "Heartbeat received within expected interval"
+        : `No heartbeat received since ${row.lastHeartbeatAt.toISOString()}`,
+      latency: 0, // Heartbeat checks have no latency
+      trigger: "cron",
+    };
+
+    // Send directly to updateStatus instead of creating a task
+    await updateHeartbeatStatus({
+      monitorId: row.id.toString(),
+      status: isHealthy ? "active" : "error",
+      region: region,
+      cronTimestamp: timestamp,
+      message: payload.message,
+    });
+
+    // Don't create a Cloud Task for heartbeat monitors
+    return Promise.resolve();
   }
   const regionInfo = regionDict[region];
   let regionHeader = {};

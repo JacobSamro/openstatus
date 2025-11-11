@@ -81,6 +81,8 @@ export const insertMonitorSchema = createInsertSchema(monitor, {
   textBodyAssertions: z.array(assertions.textBodyAssertion).optional(),
   timeout: z.coerce.number().gte(0).lte(60000).default(45000),
   degradedAfter: z.coerce.number().gte(0).lte(60000).nullish(),
+  heartbeatInterval: z.coerce.number().gte(1).lte(86400).optional(), // 1 second to 24 hours
+  heartbeatTimeout: z.coerce.number().gte(1).lte(86400).optional(), // 1 second to 24 hours
 });
 
 export const selectMonitorToPageSchema = createSelectSchema(monitorsToPages);

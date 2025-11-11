@@ -351,6 +351,13 @@
       "when": 1761901661043,
       "tag": "0049_sloppy_inhumans",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "6",
+      "when": 1762709772162,
+      "tag": "0050_flaky_nextwave",
+      "breakpoints": true
     }
   ]
 }

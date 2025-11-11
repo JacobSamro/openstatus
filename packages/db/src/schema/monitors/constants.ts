@@ -18,4 +18,5 @@ export const monitorJobTypes = [
   "udp",
   "dns",
   "ssl",
+  "heartbeat",
 ] as const;
