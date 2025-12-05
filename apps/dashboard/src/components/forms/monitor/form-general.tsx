@@ -810,7 +810,7 @@ export function FormGeneral({
               <div className="col-span-full text-muted-foreground text-sm">
                 <p className="font-medium mb-2">How Heartbeat Monitoring Works:</p>
                 <ul className="list-inside list-disc space-y-1">
-                  <li>Your application sends POST requests to <code className="font-mono text-foreground">/api/heartbeat/[monitorId]</code></li>
+                  <li>Your application sends GET or POST requests to <code className="font-mono text-foreground">/api/heartbeat/[monitorId]</code></li>
                   <li>OpenStatus expects heartbeats within the specified interval</li>
                   <li>If no heartbeat is received within interval + grace period, alerts are triggered</li>
                   <li>Use this for monitoring background services, cron jobs, or any periodic process</li>

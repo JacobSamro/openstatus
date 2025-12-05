@@ -9,7 +9,7 @@ const heartbeatSchema = z.object({
   metadata: z.record(z.any()).optional(),
 });
 
-export async function POST(
+async function handleHeartbeat(
   request: NextRequest,
   { params }: { params: { monitorId: string } }
 ) {
@@ -36,17 +36,24 @@ export async function POST(
       );
     }
 
-    const body = await request.json();
-    const validatedData = heartbeatSchema.safeParse(body);
+    // Parse body if present (optional for both GET and POST)
+    let message: string | undefined;
+    let metadata: Record<string, any> | undefined;
 
-    if (!validatedData.success) {
-      return NextResponse.json(
-        { error: "Invalid request body", details: validatedData.error },
-        { status: 400 }
-      );
+    if (request.method === "POST") {
+      try {
+        const body = await request.json();
+        const validatedData = heartbeatSchema.safeParse(body);
+
+        if (validatedData.success) {
+          message = validatedData.data.message;
+          metadata = validatedData.data.metadata;
+        }
+        // If validation fails, we still accept the heartbeat but ignore the body
+      } catch (error) {
+        // If JSON parsing fails, we still accept the heartbeat
+      }
     }
-
-    const { message, metadata } = validatedData.data;
 
     // Update last heartbeat timestamp
     await db
@@ -76,4 +83,19 @@ export async function POST(
       { status: 500 }
     );
   }
+}
+
+// Export both GET and POST handlers
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { monitorId: string } }
+) {
+  return handleHeartbeat(request, { params });
+}
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { monitorId: string } }
+) {
+  return handleHeartbeat(request, { params });
 }
